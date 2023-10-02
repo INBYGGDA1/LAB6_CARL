@@ -26,7 +26,7 @@
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#define WAIT_TIME 10
+#define WAIT_TIME 5
 
 QueueHandle_t queue1_handle, queue2_handle, queue3_handle;
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -103,7 +103,7 @@ void initialize_adc1(void)
     // Microphone (PE3), joystick horizontal (PE4), joystick vertical (PE5).
     // However, should be Microphone (PE5), joystick horizontal (PE4), joystick vertical (PE3).
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);
-    //  Joystick vertical (PE3). NOT NECESSARY?
+    //  Microphone (PE3). NOT NECESSARY?
     GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_3);
 
     // Enables trigger from ADC on the GPIO pin.
@@ -121,11 +121,14 @@ void microphone_task(void *temp)
 {
     //-----------------------------------------------------------------------------
     uint32_t microphone_value = 0;
+    uint32_t total_val_micro = 0;
+    uint32_t avg_micro = 0;
+    uint32_t num_samples = 0;
 
     TickType_t xLastWakeTime;
     // Initialize the xLastWakeTime variable with the current time.
     xLastWakeTime = xTaskGetTickCount();
-    // ms to wait, 5ms
+    // ms to wait, 1/8 period of gatekeeper
     const int period = WAIT_TIME*1;
     const TickType_t wait_time = pdMS_TO_TICKS(period);
     //-----------------------------------------------------------------------------
@@ -147,10 +150,23 @@ void microphone_task(void *temp)
         {
         }
         ADCSequenceDataGet(ADC1_BASE, 0, &microphone_value);
+        total_val_micro = total_val_micro + microphone_value;
         //-----------------------------------------------------------------------------
 
+        num_samples++;
+
+        // Take average of 8 microphone values
+        if (num_samples >= 8)
+        {
+            // Average microphone value converted to dB
+            avg_micro = round(20.0*log10(total_val_micro / num_samples));
+
+            total_val_micro = 0;
+            num_samples = 0;
+        }
+
         // Send microphone value on queue 1
-        xQueueSend(queue1_handle, &microphone_value, portMAX_DELAY);
+        xQueueSend(queue1_handle, &avg_micro, portMAX_DELAY);
     }
 }
 //=============================================================================
@@ -159,11 +175,14 @@ void joystick_task(void *temp)
 {
     //-----------------------------------------------------------------------------
     struct joystick_values joy_val;
+    struct joystick_values total_joy_val;
+    struct joystick_values avg_joy_val;
+    uint32_t num_samples = 0;
 
     TickType_t xLastWakeTime;
     // Initialize the xLastWakeTime variable with the current time.
     xLastWakeTime = xTaskGetTickCount();
-    // ms to wait, 10ms
+    // ms to wait, 1/4 period of gatekeeper
     const int period = WAIT_TIME*2;
     const TickType_t wait_time = pdMS_TO_TICKS(period);
     //-----------------------------------------------------------------------------
@@ -185,6 +204,7 @@ void joystick_task(void *temp)
         {
         }
         ADCSequenceDataGet(ADC1_BASE, 0, &joy_val.joy_x);
+        total_joy_val.joy_x = total_joy_val.joy_x + joy_val.joy_x;
         //-----------------------------------------------------------------------------
         // Joystick vertical
         // Switch to PE5 (Joystick vertical).
@@ -197,10 +217,24 @@ void joystick_task(void *temp)
         {
         }
         ADCSequenceDataGet(ADC1_BASE, 0, &joy_val.joy_y);
+        total_joy_val.joy_y = total_joy_val.joy_y + joy_val.joy_y;
         //-----------------------------------------------------------------------------
 
+        num_samples++;
+
+        // Take average of 4 joystick values
+        if (num_samples >= 4)
+        {
+            avg_joy_val.joy_x = total_joy_val.joy_x / num_samples;
+            avg_joy_val.joy_y = total_joy_val.joy_y / num_samples;
+
+            total_joy_val.joy_x = 0;
+            total_joy_val.joy_y = 0;
+            num_samples = 0;
+        }
+
         // Send joystick values on queue 2
-        xQueueSend(queue2_handle, &joy_val, portMAX_DELAY);
+        xQueueSend(queue2_handle, &avg_joy_val, portMAX_DELAY);
     }
 }
 //=============================================================================
@@ -209,11 +243,14 @@ void accelerometer_task(void *temp)
 {
     //-----------------------------------------------------------------------------
     struct accelerometer_values acc_val;
+    struct accelerometer_values total_acc_val;
+    struct accelerometer_values avg_acc_val;
+    uint32_t num_samples = 0;
 
     TickType_t xLastWakeTime;
     // Initialize the xLastWakeTime variable with the current time.
     xLastWakeTime = xTaskGetTickCount();
-    // ms to wait, 20ms
+    // ms to wait, 1/2 period of gatekeeper
     const int period = WAIT_TIME*4;
     const TickType_t wait_time = pdMS_TO_TICKS(period);
     //-----------------------------------------------------------------------------
@@ -235,6 +272,7 @@ void accelerometer_task(void *temp)
         {
         }
         ADCSequenceDataGet(ADC0_BASE, 0, &acc_val.acc_x);
+        total_acc_val.acc_x = total_acc_val.acc_x + acc_val.acc_x;
         //-----------------------------------------------------------------------------
         // Accelerometer (Gyroscope?) Y-axis
         // Switch to PE2 (Accelerometer Y-axis).
@@ -247,6 +285,7 @@ void accelerometer_task(void *temp)
         {
         }
         ADCSequenceDataGet(ADC0_BASE, 0, &acc_val.acc_y);
+        total_acc_val.acc_y = total_acc_val.acc_y + acc_val.acc_y;
         //-----------------------------------------------------------------------------
         // Accelerometer (Gyroscope?) Z-axis
         // Switch to PE0 (Accelerometer Z-axis).
@@ -259,10 +298,26 @@ void accelerometer_task(void *temp)
         {
         }
         ADCSequenceDataGet(ADC0_BASE, 0, &acc_val.acc_z);
+        total_acc_val.acc_z = total_acc_val.acc_z + acc_val.acc_z;
         //-----------------------------------------------------------------------------
 
+        num_samples++;
+
+        // Take average of 2 accelerometer values
+        if(num_samples >= 2)
+        {
+            avg_acc_val.acc_x = total_acc_val.acc_x / num_samples;
+            avg_acc_val.acc_y = total_acc_val.acc_y / num_samples;
+            avg_acc_val.acc_z = total_acc_val.acc_z / num_samples;
+
+            total_acc_val.acc_x = 0;
+            total_acc_val.acc_y = 0;
+            total_acc_val.acc_z = 0;
+            num_samples = 0;
+        }
+
         // Send accelerometer values on queue 3
-        xQueueSend(queue3_handle, &acc_val, portMAX_DELAY);
+        xQueueSend(queue3_handle, &avg_acc_val, portMAX_DELAY);
     }
 }
 //=============================================================================
@@ -270,25 +325,17 @@ void accelerometer_task(void *temp)
 void gatekeeper_task(void *temp)
 {
     //-----------------------------------------------------------------------------
-    uint32_t microphone_value = 0;
-    uint32_t total_mic_val = 0;
+    // Microphone
     uint32_t avg_mic_val = 0;
-    uint32_t num_mic_vals = 0;
-
-    struct joystick_values joy_val = {0, 0};
-    struct joystick_values total_joy_val = {0, 0};
+    // Joystick
     struct joystick_values avg_joy_val = {0, 0};
-    uint32_t num_joy_vals = 0;
-
-    struct accelerometer_values acc_val = {0, 0, 0};
-    struct accelerometer_values total_acc_val = {0, 0, 0};
+    // Accelerometer
     struct accelerometer_values avg_acc_val = {0, 0, 0};
-    uint32_t num_acc_vals = 0;
 
     TickType_t xLastWakeTime;
     // Initialize the xLastWakeTime variable with the current time.
     xLastWakeTime = xTaskGetTickCount();
-    // ms to wait, 40ms
+    // ms to wait
     const int period = WAIT_TIME*8;
     const TickType_t wait_time = pdMS_TO_TICKS(period);
     //-----------------------------------------------------------------------------
@@ -299,55 +346,18 @@ void gatekeeper_task(void *temp)
         vTaskDelayUntil(&xLastWakeTime, wait_time);
 
         //-----------------------------------------------------------------------------
-        // Take average of 8 microphone values
-        while(num_mic_vals < 8)
-        {
-            // Receive microphone value from queue 1
-            xQueueReceive(queue1_handle, &microphone_value, portMAX_DELAY);
-            total_mic_val = total_mic_val + microphone_value;
-            num_mic_vals++;
-        }
-        // Average microphone value converted to dB
-        avg_mic_val = round(20.0*log10(total_mic_val / num_mic_vals));
-        total_mic_val = 0;
-        num_mic_vals = 0;
+        // Receive microphone value from queue 1
+        xQueueReceive(queue1_handle, &avg_mic_val, portMAX_DELAY);
         //-----------------------------------------------------------------------------
 
         //-----------------------------------------------------------------------------
-        // Take average of 4 joystick values
-        while(num_joy_vals < 4)
-        {
-            // Receive joystick values from queue 2
-            xQueueReceive(queue2_handle, &joy_val, portMAX_DELAY);
-            total_joy_val.joy_x = total_joy_val.joy_x + joy_val.joy_x;
-            total_joy_val.joy_y = total_joy_val.joy_y + joy_val.joy_y;
-            num_joy_vals++;
-        }
-        avg_joy_val.joy_x = total_joy_val.joy_x / num_joy_vals;
-        avg_joy_val.joy_y = total_joy_val.joy_y / num_joy_vals;
-        total_joy_val.joy_x = 0;
-        total_joy_val.joy_y = 0;
-        num_joy_vals = 0;
+        // Receive joystick values from queue 2
+        xQueueReceive(queue2_handle, &avg_joy_val, portMAX_DELAY);
         //-----------------------------------------------------------------------------
 
         //-----------------------------------------------------------------------------
-        // Take average of 2 accelerometer values
-        while(num_acc_vals < 2)
-        {
-            // Receive accelerometer values from queue 3
-            xQueueReceive(queue3_handle, &acc_val, portMAX_DELAY);
-            total_acc_val.acc_x = total_acc_val.acc_x + acc_val.acc_x;
-            total_acc_val.acc_y = total_acc_val.acc_y + acc_val.acc_y;
-            total_acc_val.acc_z = total_acc_val.acc_z + acc_val.acc_z;
-            num_acc_vals++;
-        }
-        avg_acc_val.acc_x = total_acc_val.acc_x / num_acc_vals;
-        avg_acc_val.acc_y = total_acc_val.acc_y / num_acc_vals;
-        avg_acc_val.acc_z = total_acc_val.acc_z / num_acc_vals;
-        total_acc_val.acc_x = 0;
-        total_acc_val.acc_y = 0;
-        total_acc_val.acc_z = 0;
-        num_acc_vals = 0;
+        // Receive accelerometer values from queue 3
+        xQueueReceive(queue3_handle, &avg_acc_val, portMAX_DELAY);
         //-----------------------------------------------------------------------------
 
         // Prevent terminal scrolling
@@ -381,7 +391,8 @@ int main(void)
     BaseType_t gatekeeper_task_return;
 
     // Priorities of different tasks
-    UBaseType_t task_priority = 1;
+    UBaseType_t sensor_priority = 2;
+    UBaseType_t gatekeeper_priority = 1;
     //-----------------------------------------------------------------------------
 
     //-----------------------------------------------------------------------------
@@ -400,11 +411,11 @@ int main(void)
     //-----------------------------------------------------------------------------
     /* Create message queues */
     // Message queue 1 for microphone
-    queue1_handle = xQueueCreate(16, sizeof(uint32_t));
+    queue1_handle = xQueueCreate(8, sizeof(uint32_t));
     // Message queue 2 for joystick
-    queue2_handle = xQueueCreate(8, sizeof(struct joystick_values));
+    queue2_handle = xQueueCreate(4, sizeof(struct joystick_values));
     // Message queue 3 for accelerometer
-    queue3_handle = xQueueCreate(4, sizeof(struct accelerometer_values));
+    queue3_handle = xQueueCreate(2, sizeof(struct accelerometer_values));
 
     if((queue1_handle == NULL) || (queue2_handle == NULL) || (queue3_handle == NULL))
     {
@@ -414,10 +425,10 @@ int main(void)
 
     //-----------------------------------------------------------------------------
     // Create the different tasks
-    microphone_task_return = xTaskCreate(microphone_task, "microphone", 128, (void*) 1, task_priority, &microphone_task_handle);
-    joystick_task_return = xTaskCreate(joystick_task, "joystick", 128, (void*) 1, task_priority, &joystick_task_handle);
-    accelerometer_task_return = xTaskCreate(accelerometer_task, "accelerometer", 128, (void*) 1, task_priority, &accelerometer_task_handle);
-    gatekeeper_task_return = xTaskCreate(gatekeeper_task, "gatekeeper", 128, (void*) 1, task_priority, &gatekeeper_task_handle);
+    microphone_task_return = xTaskCreate(microphone_task, "microphone", 512, (void*) 1, sensor_priority, &microphone_task_handle);
+    joystick_task_return = xTaskCreate(joystick_task, "joystick", 512, (void*) 1, sensor_priority, &joystick_task_handle);
+    accelerometer_task_return = xTaskCreate(accelerometer_task, "accelerometer", 512, (void*) 1, sensor_priority, &accelerometer_task_handle);
+    gatekeeper_task_return = xTaskCreate(gatekeeper_task, "gatekeeper", 512, (void*) 1, gatekeeper_priority, &gatekeeper_task_handle);
 
     // Make sure all tasks could be created successfully
     if ((microphone_task_return == pdPASS) && (joystick_task_return == pdPASS) &&
