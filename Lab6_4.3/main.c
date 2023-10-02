@@ -27,6 +27,8 @@
 
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #define WAIT_TIME 5
+// If below 50 then joystick-x and microphone becomes correlated
+#define BLOCK_TIME 50
 
 QueueHandle_t queue1_handle, queue2_handle, queue3_handle;
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -165,8 +167,9 @@ void microphone_task(void *temp)
             num_samples = 0;
         }
 
+        // If inside if statement then joystick-x and microphone becomes correlated
         // Send microphone value on queue 1
-        xQueueSend(queue1_handle, &avg_micro, portMAX_DELAY);
+        xQueueSend(queue1_handle, &avg_micro, BLOCK_TIME);
     }
 }
 //=============================================================================
@@ -233,8 +236,9 @@ void joystick_task(void *temp)
             num_samples = 0;
         }
 
+        // If inside if statement then joystick-x and microphone becomes correlated
         // Send joystick values on queue 2
-        xQueueSend(queue2_handle, &avg_joy_val, portMAX_DELAY);
+        xQueueSend(queue2_handle, &avg_joy_val, BLOCK_TIME);
     }
 }
 //=============================================================================
@@ -317,7 +321,7 @@ void accelerometer_task(void *temp)
         }
 
         // Send accelerometer values on queue 3
-        xQueueSend(queue3_handle, &avg_acc_val, portMAX_DELAY);
+        xQueueSend(queue3_handle, &avg_acc_val, BLOCK_TIME);
     }
 }
 //=============================================================================
@@ -344,6 +348,8 @@ void gatekeeper_task(void *temp)
     {
         // Create periodicity
         vTaskDelayUntil(&xLastWakeTime, wait_time);
+
+        /* If average value is calculated here, then joystick-x and microphone becomes correlated */
 
         //-----------------------------------------------------------------------------
         // Receive microphone value from queue 1
@@ -411,9 +417,9 @@ int main(void)
     //-----------------------------------------------------------------------------
     /* Create message queues */
     // Message queue 1 for microphone
-    queue1_handle = xQueueCreate(8, sizeof(uint32_t));
+    queue1_handle = xQueueCreate(2, sizeof(uint32_t));
     // Message queue 2 for joystick
-    queue2_handle = xQueueCreate(4, sizeof(struct joystick_values));
+    queue2_handle = xQueueCreate(2, sizeof(struct joystick_values));
     // Message queue 3 for accelerometer
     queue3_handle = xQueueCreate(2, sizeof(struct accelerometer_values));
 
@@ -425,10 +431,10 @@ int main(void)
 
     //-----------------------------------------------------------------------------
     // Create the different tasks
-    microphone_task_return = xTaskCreate(microphone_task, "microphone", 512, (void*) 1, sensor_priority, &microphone_task_handle);
-    joystick_task_return = xTaskCreate(joystick_task, "joystick", 512, (void*) 1, sensor_priority, &joystick_task_handle);
-    accelerometer_task_return = xTaskCreate(accelerometer_task, "accelerometer", 512, (void*) 1, sensor_priority, &accelerometer_task_handle);
-    gatekeeper_task_return = xTaskCreate(gatekeeper_task, "gatekeeper", 512, (void*) 1, gatekeeper_priority, &gatekeeper_task_handle);
+    microphone_task_return = xTaskCreate(microphone_task, "microphone", 256, (void*) 1, sensor_priority, &microphone_task_handle);
+    joystick_task_return = xTaskCreate(joystick_task, "joystick", 256, (void*) 1, sensor_priority, &joystick_task_handle);
+    accelerometer_task_return = xTaskCreate(accelerometer_task, "accelerometer", 256, (void*) 1, sensor_priority, &accelerometer_task_handle);
+    gatekeeper_task_return = xTaskCreate(gatekeeper_task, "gatekeeper", 256, (void*) 1, gatekeeper_priority, &gatekeeper_task_handle);
 
     // Make sure all tasks could be created successfully
     if ((microphone_task_return == pdPASS) && (joystick_task_return == pdPASS) &&
