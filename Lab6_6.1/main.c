@@ -60,16 +60,17 @@ void dining_philosophers(void *temp)
 
     int random_time;
     srand(time(NULL));
-    // ms to wait, 500ms
-    const TickType_t wait_time = pdMS_TO_TICKS(500);
+    // ms to wait, 1s
+    const TickType_t wait_time = pdMS_TO_TICKS(1000);
     //-----------------------------------------------------------------------------
 
     for (;;)
     {
-        // Think for 500ms
+        // Think for 1s
         vTaskDelay(wait_time);
 
         // Take lowest valued chopstick first
+        // For philosopher 4 this means taking chopstick 0 first, then chopstick 4
         if ((i + 1) % 5 < i)
         {
             if (xSemaphoreTake(chopstick[(i + 1) % 5], portMAX_DELAY) != pdTRUE)
@@ -84,6 +85,7 @@ void dining_philosophers(void *temp)
             }
             UARTprintf("\n Philosopher %d takes chopstick %d (second) \n", i, i);
         }
+        // for every other philosopher this means, philosopher x takes chopstick x first, then chopstick x+1
         else
         {
             if (xSemaphoreTake(chopstick[i], portMAX_DELAY) != pdTRUE)
@@ -100,12 +102,12 @@ void dining_philosophers(void *temp)
         }
 
         // Eat for a random amount of time
-        random_time = rand() / 10;
+        random_time = rand();
         vTaskDelay(random_time);
         UARTprintf("\n Philosopher %d has eaten \n", i);
 
         UARTprintf("\n Philosopher %d puts down chopsticks \n", i);
-        // Always return latest taken mutex first
+        // Always return latest taken mutex first, see documentation
         if ((i + 1) % 5 < i)
         {
             while (xSemaphoreGive(chopstick[i]) != pdTRUE)
