@@ -27,7 +27,7 @@
 
 //+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #define WAIT_TIME 5
-// If below 50 then joystick-x and microphone becomes correlated
+// If below 50 then joystick-x and microphone becomes correlated (legacy issue)
 #define BLOCK_TIME 50
 
 QueueHandle_t queue1_handle, queue2_handle, queue3_handle;
@@ -132,7 +132,7 @@ void initialize_pins(void)
     GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_0);
 }
 //=============================================================================
-// Takes microphone values, convert to decibel, send on message queue 1
+// Takes microphone values, send on message queue 1
 void microphone_task(void *temp)
 {
     //-----------------------------------------------------------------------------
@@ -344,8 +344,6 @@ void gatekeeper_task(void *temp)
     {
         // Create periodicity
         vTaskDelayUntil(&xLastWakeTime, wait_time);
-
-        /* If average value is calculated here, then joystick-x and microphone becomes correlated */
 
         //-----------------------------------------------------------------------------
         // Receive microphone value from queue 1
