@@ -165,7 +165,7 @@ void microphone_task(void *temp)
         {
         }
         ADCSequenceDataGet(ADC1_BASE, 0, &microphone_value);
-        // Required to not cause issues between different ADC and correlations
+        // Required to not cause mapping issues between different ADC and correlations
         // Because there is a write buffer in the Cortex-M processor, it may take several clock cycles before the interrupt source is actually cleared.
         ADCIntClear(ADC1_BASE, 0);
         //-----------------------------------------------------------------------------
@@ -208,7 +208,7 @@ void joystick_task(void *temp)
         {
         }
         ADCSequenceDataGet(ADC1_BASE, 0, &joy_val.joy_x);
-        // Required to not cause issues between different ADC and correlations
+        // Required to not cause mapping issues between different ADC and correlations
         // Because there is a write buffer in the Cortex-M processor, it may take several clock cycles before the interrupt source is actually cleared.
         ADCIntClear(ADC1_BASE, 0);
         //-----------------------------------------------------------------------------
@@ -225,7 +225,7 @@ void joystick_task(void *temp)
         {
         }
         ADCSequenceDataGet(ADC1_BASE, 0, &joy_val.joy_y);
-        // Required to not cause issues between different ADC and correlations
+        // Required to not cause mapping issues between different ADC and correlations
         // Because there is a write buffer in the Cortex-M processor, it may take several clock cycles before the interrupt source is actually cleared.
         ADCIntClear(ADC1_BASE, 0);
         //-----------------------------------------------------------------------------
@@ -268,7 +268,7 @@ void accelerometer_task(void *temp)
         {
         }
         ADCSequenceDataGet(ADC0_BASE, 0, &acc_val.acc_x);
-        // Required to not cause issues between different ADC and correlations
+        // Required to not cause mapping issues between different ADC and correlations
         // Because there is a write buffer in the Cortex-M processor, it may take several clock cycles before the interrupt source is actually cleared.
         ADCIntClear(ADC0_BASE, 0);
         //-----------------------------------------------------------------------------
@@ -285,7 +285,7 @@ void accelerometer_task(void *temp)
         {
         }
         ADCSequenceDataGet(ADC0_BASE, 0, &acc_val.acc_y);
-        // Required to not cause issues between different ADC and correlations
+        // Required to not cause mapping issues between different ADC and correlations
         // Because there is a write buffer in the Cortex-M processor, it may take several clock cycles before the interrupt source is actually cleared.
         ADCIntClear(ADC0_BASE, 0);
         //-----------------------------------------------------------------------------
@@ -302,7 +302,7 @@ void accelerometer_task(void *temp)
         {
         }
         ADCSequenceDataGet(ADC0_BASE, 0, &acc_val.acc_z);
-        // Required to not cause issues between different ADC and correlations
+        // Required to not cause mapping issues between different ADC and correlations
         // Because there is a write buffer in the Cortex-M processor, it may take several clock cycles before the interrupt source is actually cleared.
         ADCIntClear(ADC0_BASE, 0);
         //-----------------------------------------------------------------------------
