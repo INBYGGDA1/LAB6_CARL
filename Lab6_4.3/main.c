@@ -78,12 +78,9 @@ void initialize_adc0(void)
     while (!SysCtlPeripheralReady(SYSCTL_PERIPH_ADC0))
     {
     }
-    // Accelerometer (gyroscope?) is on: X (PE1), Y (PE2), Z (PE0).
-    // But should be on: X (PE0), Y (PE1), Z (PE2).
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);
-    // Accelerometer (gyroscope) X-axis (PE1). NOT NECESSARY?
-    GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_1);
 
+    // Must disable sequence before configuring it
+    ADCSequenceDisable(ADC0_BASE, 0);
     // Enables trigger from ADC on the GPIO pin.
     // Enable the first sample sequencer to capture the value of the channel when
     // the processor trigger occurs.
@@ -102,12 +99,9 @@ void initialize_adc1(void)
     while (!SysCtlPeripheralReady(SYSCTL_PERIPH_ADC1))
     {
     }
-    // Microphone (PE3), joystick horizontal (PE4), joystick vertical (PE5).
-    // However, should be Microphone (PE5), joystick horizontal (PE4), joystick vertical (PE3).
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);
-    //  Microphone (PE3). NOT NECESSARY?
-    GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_3);
 
+    // Must disable sequence before configuring it
+    ADCSequenceDisable(ADC1_BASE, 0);
     // Enables trigger from ADC on the GPIO pin.
     // Enable the first sample sequencer to capture the value of the channel when
     // the processor trigger occurs.
@@ -118,14 +112,31 @@ void initialize_adc1(void)
     ADCSequenceEnable(ADC1_BASE, 0);
 }
 //=============================================================================
+void initialize_pins(void)
+{
+    // Enable port for all the sensors
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);
+
+    /* These might be incorrectly labeled, unsure which goes to which */
+    // Enable microphone on PE3.
+    GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_3);
+    // Enable Joystick horizontal/X on PE4.
+    GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_4);
+    // Enable Joystick vertical/Y on PE5.
+    GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_5);
+    // Enable Accelerometer X-axis on PE1.
+    GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_1);
+    // Enable Accelerometer Y-axis on PE2.
+    GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_2);
+    // Enable Accelerometer Z-axis on PE0.
+    GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_0);
+}
+//=============================================================================
 // Takes microphone values, convert to decibel, send on message queue 1
 void microphone_task(void *temp)
 {
     //-----------------------------------------------------------------------------
     uint32_t microphone_value = 0;
-    uint32_t total_val_micro = 0;
-    uint32_t avg_micro = 0;
-    uint32_t num_samples = 0;
 
     TickType_t xLastWakeTime;
     // Initialize the xLastWakeTime variable with the current time.
@@ -141,35 +152,26 @@ void microphone_task(void *temp)
         vTaskDelayUntil(&xLastWakeTime, wait_time);
 
         //-----------------------------------------------------------------------------
+        // Must disable sequence before configuring it
+        ADCSequenceDisable(ADC1_BASE, 0);
         // Microphone
-        // Switch to PE3 (Microphone).
-        GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_3);
-        // Switch ADC1 to channel 9 for microphone.
-        ADCSequenceStepConfigure(ADC1_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH9);
+        // Switch ADC1 to channel 8 for microphone.
+        ADCSequenceStepConfigure(ADC1_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH8);
+        // Enable sequence again
+        ADCSequenceEnable(ADC1_BASE, 0);
         // Wait for microphone.
         ADCProcessorTrigger(ADC1_BASE, 0);
         while (!ADCIntStatus(ADC1_BASE, 0, false))
         {
         }
         ADCSequenceDataGet(ADC1_BASE, 0, &microphone_value);
-        total_val_micro = total_val_micro + microphone_value;
+        // Required to not cause issues between different ADC and correlations
+        // Because there is a write buffer in the Cortex-M processor, it may take several clock cycles before the interrupt source is actually cleared.
+        ADCIntClear(ADC1_BASE, 0);
         //-----------------------------------------------------------------------------
 
-        num_samples++;
-
-        // Take average of 8 microphone values
-        if (num_samples >= 8)
-        {
-            // Average microphone value converted to dB
-            avg_micro = round(20.0*log10(total_val_micro / num_samples));
-
-            total_val_micro = 0;
-            num_samples = 0;
-        }
-
-        // If inside if statement then joystick-x and microphone becomes correlated
         // Send microphone value on queue 1
-        xQueueSend(queue1_handle, &avg_micro, BLOCK_TIME);
+        xQueueSend(queue1_handle, (void* )&microphone_value, BLOCK_TIME);
     }
 }
 //=============================================================================
@@ -178,9 +180,6 @@ void joystick_task(void *temp)
 {
     //-----------------------------------------------------------------------------
     struct joystick_values joy_val;
-    struct joystick_values total_joy_val;
-    struct joystick_values avg_joy_val;
-    uint32_t num_samples = 0;
 
     TickType_t xLastWakeTime;
     // Initialize the xLastWakeTime variable with the current time.
@@ -197,48 +196,42 @@ void joystick_task(void *temp)
 
         //-----------------------------------------------------------------------------
         // Joystick horizontal
-        // Switch to PE4 (Joystick horizontal).
-        GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_4);
-        // Switch ADC1 to channel 0 for joystick horizontal.
-        ADCSequenceStepConfigure(ADC1_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH0);
+        // Must disable sequence before configuring it
+        ADCSequenceDisable(ADC1_BASE, 0);
+        // Switch ADC1 to channel 9 for joystick horizontal.
+        ADCSequenceStepConfigure(ADC1_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH9);
+        // Enable sequence again
+        ADCSequenceEnable(ADC1_BASE, 0);
         // Wait for joystick horizontal.
         ADCProcessorTrigger(ADC1_BASE, 0);
         while (!ADCIntStatus(ADC1_BASE, 0, false))
         {
         }
         ADCSequenceDataGet(ADC1_BASE, 0, &joy_val.joy_x);
-        total_joy_val.joy_x = total_joy_val.joy_x + joy_val.joy_x;
+        // Required to not cause issues between different ADC and correlations
+        // Because there is a write buffer in the Cortex-M processor, it may take several clock cycles before the interrupt source is actually cleared.
+        ADCIntClear(ADC1_BASE, 0);
         //-----------------------------------------------------------------------------
         // Joystick vertical
-        // Switch to PE5 (Joystick vertical).
-        GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_5);
-        // Switch ADC1 to channel 8 for joystick vertical.
-        ADCSequenceStepConfigure(ADC1_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH8);
+        // Must disable sequence before configuring it
+        ADCSequenceDisable(ADC1_BASE, 0);
+        // Switch ADC1 to channel 0 for joystick vertical.
+        ADCSequenceStepConfigure(ADC1_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH0);
+        // Enable sequence again
+        ADCSequenceEnable(ADC1_BASE, 0);
         // Wait for joystick vertical.
         ADCProcessorTrigger(ADC1_BASE, 0);
         while (!ADCIntStatus(ADC1_BASE, 0, false))
         {
         }
         ADCSequenceDataGet(ADC1_BASE, 0, &joy_val.joy_y);
-        total_joy_val.joy_y = total_joy_val.joy_y + joy_val.joy_y;
+        // Required to not cause issues between different ADC and correlations
+        // Because there is a write buffer in the Cortex-M processor, it may take several clock cycles before the interrupt source is actually cleared.
+        ADCIntClear(ADC1_BASE, 0);
         //-----------------------------------------------------------------------------
 
-        num_samples++;
-
-        // Take average of 4 joystick values
-        if (num_samples >= 4)
-        {
-            avg_joy_val.joy_x = total_joy_val.joy_x / num_samples;
-            avg_joy_val.joy_y = total_joy_val.joy_y / num_samples;
-
-            total_joy_val.joy_x = 0;
-            total_joy_val.joy_y = 0;
-            num_samples = 0;
-        }
-
-        // If inside if statement then joystick-x and microphone becomes correlated
         // Send joystick values on queue 2
-        xQueueSend(queue2_handle, &avg_joy_val, BLOCK_TIME);
+        xQueueSend(queue2_handle, (void*)&joy_val, BLOCK_TIME);
     }
 }
 //=============================================================================
@@ -247,9 +240,6 @@ void accelerometer_task(void *temp)
 {
     //-----------------------------------------------------------------------------
     struct accelerometer_values acc_val;
-    struct accelerometer_values total_acc_val;
-    struct accelerometer_values avg_acc_val;
-    uint32_t num_samples = 0;
 
     TickType_t xLastWakeTime;
     // Initialize the xLastWakeTime variable with the current time.
@@ -266,62 +256,59 @@ void accelerometer_task(void *temp)
 
         //-----------------------------------------------------------------------------
         // Accelerometer (Gyroscope?) X-axis
-        // Switch to PE1 (Accelerometer X-axis).
-        GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_1);
-        // Switch ADC0 to channel 2 for Accelerometer (gyroscope?) X-axis.
-        ADCSequenceStepConfigure(ADC0_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH2);
+        // Must disable sequence before configuring it
+        ADCSequenceDisable(ADC0_BASE, 0);
+        // Switch ADC0 to channel 3 for Accelerometer (gyroscope?) X-axis.
+        ADCSequenceStepConfigure(ADC0_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH3);
+        // Enable sequence again
+        ADCSequenceEnable(ADC0_BASE, 0);
         // Wait for Accelerometer (gyroscope) X-axis (PE1) value.
         ADCProcessorTrigger(ADC0_BASE, 0);
         while (!ADCIntStatus(ADC0_BASE, 0, false))
         {
         }
         ADCSequenceDataGet(ADC0_BASE, 0, &acc_val.acc_x);
-        total_acc_val.acc_x = total_acc_val.acc_x + acc_val.acc_x;
+        // Required to not cause issues between different ADC and correlations
+        // Because there is a write buffer in the Cortex-M processor, it may take several clock cycles before the interrupt source is actually cleared.
+        ADCIntClear(ADC0_BASE, 0);
         //-----------------------------------------------------------------------------
         // Accelerometer (Gyroscope?) Y-axis
-        // Switch to PE2 (Accelerometer Y-axis).
-        GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_2);
-        // Switch ADC0 to channel 1 for Accelerometer (gyroscope?) Y-axis.
-        ADCSequenceStepConfigure(ADC0_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH1);
+        // Must disable sequence before configuring it
+        ADCSequenceDisable(ADC0_BASE, 0);
+        // Switch ADC0 to channel 2 for Accelerometer (gyroscope?) Y-axis.
+        ADCSequenceStepConfigure(ADC0_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH2);
+        // Enable sequence again
+        ADCSequenceEnable(ADC0_BASE, 0);
         // Wait for Accelerometer (gyroscope) Y-axis (PE2) value.
         ADCProcessorTrigger(ADC0_BASE, 0);
         while (!ADCIntStatus(ADC0_BASE, 0, false))
         {
         }
         ADCSequenceDataGet(ADC0_BASE, 0, &acc_val.acc_y);
-        total_acc_val.acc_y = total_acc_val.acc_y + acc_val.acc_y;
+        // Required to not cause issues between different ADC and correlations
+        // Because there is a write buffer in the Cortex-M processor, it may take several clock cycles before the interrupt source is actually cleared.
+        ADCIntClear(ADC0_BASE, 0);
         //-----------------------------------------------------------------------------
         // Accelerometer (Gyroscope?) Z-axis
-        // Switch to PE0 (Accelerometer Z-axis).
-        GPIOPinTypeADC(GPIO_PORTE_BASE, GPIO_PIN_0);
-        // Switch ADC0 to channel 3 for Accelerometer (gyroscope?) Z-axis.
-        ADCSequenceStepConfigure(ADC0_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH3);
+        // Must disable sequence before configuring it
+        ADCSequenceDisable(ADC0_BASE, 0);
+        // Switch ADC0 to channel 1 for Accelerometer (gyroscope?) Z-axis.
+        ADCSequenceStepConfigure(ADC0_BASE, 0, 0, ADC_CTL_IE | ADC_CTL_END | ADC_CTL_CH1);
+        // Enable sequence again
+        ADCSequenceEnable(ADC0_BASE, 0);
         // Wait for Accelerometer (gyroscope) Z-axis (PE0) value.
         ADCProcessorTrigger(ADC0_BASE, 0);
         while (!ADCIntStatus(ADC0_BASE, 0, false))
         {
         }
         ADCSequenceDataGet(ADC0_BASE, 0, &acc_val.acc_z);
-        total_acc_val.acc_z = total_acc_val.acc_z + acc_val.acc_z;
+        // Required to not cause issues between different ADC and correlations
+        // Because there is a write buffer in the Cortex-M processor, it may take several clock cycles before the interrupt source is actually cleared.
+        ADCIntClear(ADC0_BASE, 0);
         //-----------------------------------------------------------------------------
 
-        num_samples++;
-
-        // Take average of 2 accelerometer values
-        if(num_samples >= 2)
-        {
-            avg_acc_val.acc_x = total_acc_val.acc_x / num_samples;
-            avg_acc_val.acc_y = total_acc_val.acc_y / num_samples;
-            avg_acc_val.acc_z = total_acc_val.acc_z / num_samples;
-
-            total_acc_val.acc_x = 0;
-            total_acc_val.acc_y = 0;
-            total_acc_val.acc_z = 0;
-            num_samples = 0;
-        }
-
         // Send accelerometer values on queue 3
-        xQueueSend(queue3_handle, &avg_acc_val, BLOCK_TIME);
+        xQueueSend(queue3_handle, (void*)&acc_val, BLOCK_TIME);
     }
 }
 //=============================================================================
@@ -330,11 +317,20 @@ void gatekeeper_task(void *temp)
 {
     //-----------------------------------------------------------------------------
     // Microphone
+    uint32_t mic_val = 0;
+    uint32_t total_mic_val = 0;
     uint32_t avg_mic_val = 0;
+    uint32_t mic_samples = 0;
     // Joystick
+    struct joystick_values joy_val = {0, 0};
+    struct joystick_values total_joy_val = {0, 0};
     struct joystick_values avg_joy_val = {0, 0};
+    uint32_t joy_samples = 0;
     // Accelerometer
+    struct accelerometer_values acc_val = {0, 0, 0};
+    struct accelerometer_values total_acc_val = {0, 0, 0};
     struct accelerometer_values avg_acc_val = {0, 0, 0};
+    uint32_t acc_samples = 0;
 
     TickType_t xLastWakeTime;
     // Initialize the xLastWakeTime variable with the current time.
@@ -353,23 +349,64 @@ void gatekeeper_task(void *temp)
 
         //-----------------------------------------------------------------------------
         // Receive microphone value from queue 1
-        xQueueReceive(queue1_handle, &avg_mic_val, portMAX_DELAY);
+        while(xQueueReceive(queue1_handle, &mic_val, 0) == pdTRUE)
+        {
+            total_mic_val = total_mic_val + mic_val;
+            mic_samples++;
+        }
+        // Calculate average using 8 samples
+        if(mic_samples >= 8)
+        {
+            // Convert to dB
+            avg_mic_val = round(20.0*log10(total_mic_val / mic_samples));
+            total_mic_val = 0;
+            mic_samples = 0;
+        }
         //-----------------------------------------------------------------------------
 
         //-----------------------------------------------------------------------------
         // Receive joystick values from queue 2
-        xQueueReceive(queue2_handle, &avg_joy_val, portMAX_DELAY);
+        while(xQueueReceive(queue2_handle, &joy_val, 0) == pdTRUE)
+        {
+            total_joy_val.joy_x = total_joy_val.joy_x + joy_val.joy_x;
+            total_joy_val.joy_y = total_joy_val.joy_y + joy_val.joy_y;
+            joy_samples++;
+        }
+        if(joy_samples >= 4)
+        {
+            avg_joy_val.joy_x = total_joy_val.joy_x / joy_samples;
+            avg_joy_val.joy_y = total_joy_val.joy_y / joy_samples;
+            total_joy_val.joy_x = 0;
+            total_joy_val.joy_y = 0;
+            joy_samples = 0;
+        }
         //-----------------------------------------------------------------------------
 
         //-----------------------------------------------------------------------------
         // Receive accelerometer values from queue 3
-        xQueueReceive(queue3_handle, &avg_acc_val, portMAX_DELAY);
+        while(xQueueReceive(queue3_handle, &acc_val, 0) == pdTRUE)
+        {
+            total_acc_val.acc_x = total_acc_val.acc_x + acc_val.acc_x;
+            total_acc_val.acc_y = total_acc_val.acc_y + acc_val.acc_y;
+            total_acc_val.acc_z = total_acc_val.acc_z + acc_val.acc_z;
+            acc_samples++;
+        }
+        if(acc_samples >= 2)
+        {
+            avg_acc_val.acc_x = total_acc_val.acc_x / acc_samples;
+            avg_acc_val.acc_y = total_acc_val.acc_y / acc_samples;
+            avg_acc_val.acc_z = total_acc_val.acc_z / acc_samples;
+            total_acc_val.acc_x = 0;
+            total_acc_val.acc_y = 0;
+            total_acc_val.acc_z = 0;
+            acc_samples = 0;
+        }
         //-----------------------------------------------------------------------------
 
         // Prevent terminal scrolling
         UARTprintf("\033[2J");
         // Print out ADC values
-        UARTprintf("\n Microphone    : %ddB \n", avg_mic_val);
+        UARTprintf("\n Microphone    : %d dB \n", avg_mic_val);
         UARTprintf("\n Joystick      : %d, %d \n", avg_joy_val.joy_x, avg_joy_val.joy_y);
         UARTprintf("\n Accelerometer : %d, %d, %d \n", avg_acc_val.acc_x, avg_acc_val.acc_y, avg_acc_val.acc_z);
     }
@@ -412,14 +449,16 @@ int main(void)
     initialize_adc0();
     // Initialize ADC1 for joystick and microphone
     initialize_adc1();
+    // Initialize all the pins for the sensors
+    initialize_pins();
     //-----------------------------------------------------------------------------
 
     //-----------------------------------------------------------------------------
     /* Create message queues */
     // Message queue 1 for microphone
-    queue1_handle = xQueueCreate(2, sizeof(uint32_t));
+    queue1_handle = xQueueCreate(8, sizeof(uint32_t));
     // Message queue 2 for joystick
-    queue2_handle = xQueueCreate(2, sizeof(struct joystick_values));
+    queue2_handle = xQueueCreate(4, sizeof(struct joystick_values));
     // Message queue 3 for accelerometer
     queue3_handle = xQueueCreate(2, sizeof(struct accelerometer_values));
 
