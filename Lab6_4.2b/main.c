@@ -109,13 +109,10 @@ void UART_task(void *temp)
 {
     //-----------------------------------------------------------------------------
     // Buffer for user input string
-    char UART_buffer[BUFFER_SIZE];
-    int characters_read = 0;
+    char character_read;
 
     int i;
     int index = 0;
-    int num_of_shifts;
-    int temp_num_of_shifts;
     //-----------------------------------------------------------------------------
 
     for (;;)
@@ -127,7 +124,7 @@ void UART_task(void *temp)
         {
             if(g_print_total_characters == 1)
             {
-                // Echo the input back
+                // Echo the input back and total characters read
                 UARTprintf("\n %s \n", echo_buffer);
                 UARTprintf("\n %d \n", g_total_characters_read);
             }
@@ -139,35 +136,25 @@ void UART_task(void *temp)
             }
         }
         // Receive user input
-        characters_read = UARTgets(UART_buffer, BUFFER_SIZE);
-        g_total_characters_read = g_total_characters_read + characters_read;
-        // How many shifts left are needed
-        num_of_shifts = (characters_read - (ECHO_SIZE - index));
-        temp_num_of_shifts = num_of_shifts;
+        character_read = (char)UARTCharGet(UART0_BASE);
+        g_total_characters_read++;
 
-        // Only shift if buffer is full or string read exceeds echo buffer size
-        if(g_total_characters_read > ECHO_SIZE)
+        // Only shift if buffer is full
+        if (g_total_characters_read > ECHO_SIZE)
         {
-            // Shift everything left as many steps as there are new characters which need to be added
-            while(temp_num_of_shifts > 0)
+            // Shift everything one step to the left
+            for (i = 0; i < (index); i++)
             {
-                for(i = 0; i<(index); i++)
-                {
-                    echo_buffer[i] = echo_buffer[i+1];
-                }
-                temp_num_of_shifts--;
+                echo_buffer[i] = echo_buffer[i + 1];
             }
 
-            // Find index where we are gonna put new characters in echo_buffer
-            index = index - num_of_shifts;
+            // Find index where we are gonna put new character in echo_buffer
+            index = index - 1;
         }
 
-        // Add in characters read at the end of the echo_buffer
-        for(i = 0; i<characters_read; i++)
-        {
-            echo_buffer[index+i] = UART_buffer[i];
-        }
-        index = index + i;
+        // Add in character read at the end of the echo_buffer
+        echo_buffer[index] = character_read;
+        index++;
         // Add end of string character
         echo_buffer[index] = '\0';
     }
